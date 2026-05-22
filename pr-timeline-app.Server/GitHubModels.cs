@@ -33,15 +33,6 @@ record TokenResult(string Value, string Source);
 
 record AuthStatusResponse(bool Authenticated, bool Configured, bool CanLogin, string? Source, string? Login, string Message);
 
-record DeviceLoginResponse(
-    string Status,
-    string? UserCode,
-    string? VerificationUri,
-    string? VerificationUriComplete,
-    int IntervalSeconds,
-    DateTimeOffset? ExpiresAt,
-    string Message);
-
 record PullRequestListResponse(string Repository, IReadOnlyList<PullRequestSummary> PullRequests);
 
 record PullRequestSummary(
@@ -336,14 +327,12 @@ record TimelineItem(
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(DeviceCodeResponseDto))]
 [JsonSerializable(typeof(GitHubActorDto))]
 [JsonSerializable(typeof(GitHubErrorDto))]
 [JsonSerializable(typeof(GitHubPullRequestDto))]
 [JsonSerializable(typeof(GitHubPullRequestDto[]))]
 [JsonSerializable(typeof(GitHubReviewDto[]))]
 [JsonSerializable(typeof(GitHubTimelineItemDto[]))]
-[JsonSerializable(typeof(OAuthTokenResponseDto))]
 partial class GitHubJsonSerializerContext : JsonSerializerContext;
 
 sealed class GitHubActorDto
@@ -412,23 +401,4 @@ sealed class GitHubTimelineItemDto
     public GitHubTeamDto? RequestedTeam { get; init; }
     public GitHubLabelDto? Label { get; init; }
     public GitHubActorDto? Assignee { get; init; }
-}
-
-sealed class DeviceCodeResponseDto
-{
-    public string? DeviceCode { get; init; }
-    public string? UserCode { get; init; }
-    public string? VerificationUri { get; init; }
-    public string? VerificationUriComplete { get; init; }
-    public int Interval { get; init; }
-    public int ExpiresIn { get; init; }
-    public string? Error { get; init; }
-    public string? ErrorDescription { get; init; }
-}
-
-sealed class OAuthTokenResponseDto
-{
-    public string? AccessToken { get; init; }
-    public string? Error { get; init; }
-    public string? ErrorDescription { get; init; }
 }

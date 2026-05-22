@@ -7,14 +7,14 @@ sealed class GitHubAuthService(GitHubTokenProvider tokenProvider, GitHubClient g
 
         return new AuthStatusResponse(
             Authenticated: token is not null,
-            Configured: GitHubOAuthDeviceFlow.IsConfigured,
-            CanLogin: GitHubOAuthDeviceFlow.IsConfigured,
+            Configured: GitHubOAuthConfiguration.IsConfigured,
+            CanLogin: GitHubOAuthConfiguration.IsConfigured,
             Source: token?.Source,
             Login: login,
             Message: token is null
-                ? GitHubOAuthDeviceFlow.IsConfigured
+                ? GitHubOAuthConfiguration.IsConfigured
                     ? "Sign in with GitHub to let the dashboard call the GitHub API."
-                    : "Set GITHUB_CLIENT_ID for GitHub login, or set GITHUB_TOKEN/GH_TOKEN, or run `gh auth login`."
+                    : "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET for GitHub login, or set GITHUB_TOKEN/GH_TOKEN, or run `gh auth login`."
                 : token.Source == "oauth"
                     ? "Signed in with GitHub for this local session."
                     : "GitHub API token is available to the local backend.");

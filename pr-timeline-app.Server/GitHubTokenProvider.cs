@@ -1,35 +1,30 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Authentication;
 
-sealed class GitHubTokenProvider
+sealed class GitHubTokenProvider(IHttpContextAccessor httpContextAccessor)
 {
     private readonly SemaphoreSlim semaphore = new(1, 1);
-    private TokenResult? oauthToken;
     private TokenResult? cachedGitHubCliToken;
     private bool attemptedGitHubCli;
     private bool suppressFallback;
 
     public long AuthGeneration { get; private set; }
 
-    public void SetOAuthToken(string token)
-    {
-        oauthToken = new TokenResult(token, "oauth");
-        suppressFallback = false;
-        AuthGeneration++;
-    }
-
     public void Logout()
     {
-        oauthToken = null;
         suppressFallback = true;
         AuthGeneration++;
     }
 
     public async Task<TokenResult?> GetTokenAsync(CancellationToken cancellationToken)
     {
-        if (oauthToken is not null)
+        if (httpContextAccessor.HttpContext is { } context
+            && await context.GetTokenAsync("access_token") is { Length: > 0 } accessToken)
         {
-            return oauthToken;
+            return new TokenResult(accessToken, "oauth");
         }
 
         if (suppressFallback)
@@ -116,5 +111,17 @@ sealed class GitHubTokenProvider
 
             return await process.StandardOutput.ReadToEndAsync(cancellationToken);
         }
+    }
+
+    public async Task<string> GetCacheKeyAsync(CancellationToken cancellationToken)
+    {
+        var token = await GetTokenAsync(cancellationToken);
+        if (token is null)
+        {
+            return $"anonymous:{AuthGeneration}";
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token.Value));
+        return $"{token.Source}:{Convert.ToHexString(hash)[..16]}:{AuthGeneration}";
     }
 }

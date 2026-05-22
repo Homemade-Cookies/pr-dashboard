@@ -11,7 +11,8 @@ sealed partial class GitHubClient(HttpClient httpClient, GitHubTokenProvider tok
 
     public async Task<string?> GetCurrentUserLoginAsync(CancellationToken cancellationToken)
     {
-        return await cache.GetOrCreateAsync($"current-user:{tokenProvider.AuthGeneration}", async entry =>
+        var authCacheKey = await tokenProvider.GetCacheKeyAsync(cancellationToken);
+        return await cache.GetOrCreateAsync($"current-user:{authCacheKey}", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
             var user = await SendGitHubRequestAsync(
@@ -27,7 +28,8 @@ sealed partial class GitHubClient(HttpClient httpClient, GitHubTokenProvider tok
         string state,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"pulls:{tokenProvider.AuthGeneration}:{repositoryName}:{state}";
+        var authCacheKey = await tokenProvider.GetCacheKeyAsync(cancellationToken);
+        var cacheKey = $"pulls:{authCacheKey}:{repositoryName}:{state}";
         return await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheDuration;
@@ -56,7 +58,8 @@ sealed partial class GitHubClient(HttpClient httpClient, GitHubTokenProvider tok
         int number,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"reviews:{tokenProvider.AuthGeneration}:{repositoryName}:{number}";
+        var authCacheKey = await tokenProvider.GetCacheKeyAsync(cancellationToken);
+        var cacheKey = $"reviews:{authCacheKey}:{repositoryName}:{number}";
         return await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheDuration;
@@ -101,7 +104,8 @@ sealed partial class GitHubClient(HttpClient httpClient, GitHubTokenProvider tok
         int number,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"timeline:{tokenProvider.AuthGeneration}:{repositoryName}:{number}";
+        var authCacheKey = await tokenProvider.GetCacheKeyAsync(cancellationToken);
+        var cacheKey = $"timeline:{authCacheKey}:{repositoryName}:{number}";
         return await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheDuration;
@@ -136,7 +140,8 @@ sealed partial class GitHubClient(HttpClient httpClient, GitHubTokenProvider tok
         int number,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"pull:{tokenProvider.AuthGeneration}:{repositoryName}:{number}";
+        var authCacheKey = await tokenProvider.GetCacheKeyAsync(cancellationToken);
+        var cacheKey = $"pull:{authCacheKey}:{repositoryName}:{number}";
         return await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheDuration;

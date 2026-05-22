@@ -9,6 +9,7 @@ builder.Services.AddGitHubApiServices();
 var app = builder.Build();
 
 app.UseGitHubApiExceptionHandler();
+app.UseAuthentication();
 
 if (app.Environment.IsDevelopment())
 {

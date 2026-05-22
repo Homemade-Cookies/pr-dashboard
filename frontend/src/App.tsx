@@ -11,16 +11,6 @@ type AuthStatus = {
   message: string;
 };
 
-type DeviceLoginResponse = {
-  status: 'idle' | 'pending' | 'slow_down' | 'authorized' | 'expired' | 'access_denied' | 'error';
-  userCode?: string;
-  verificationUri?: string;
-  verificationUriComplete?: string;
-  intervalSeconds: number;
-  expiresAt?: string;
-  message: string;
-};
-
 type PullRequestSummary = {
   repository: string;
   number: number;
@@ -206,7 +196,6 @@ function App() {
   const [timelineStats, setTimelineStats] = useState<TimelineStats | null>(null);
   const [pullsLoading, setPullsLoading] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
-  const [loginFlow, setLoginFlow] = useState<DeviceLoginResponse | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'dashboard' | 'details'>('dashboard');
@@ -307,55 +296,12 @@ function App() {
     setLoginLoading(true);
     setError(null);
 
-    try {
-      const response = await fetch('/api/github/login/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const flow = await readJson<DeviceLoginResponse>(response);
-      setLoginFlow(flow);
-
-      if (flow.status === 'pending' || flow.status === 'slow_down') {
-        void pollGitHubLogin(flow.intervalSeconds);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to start GitHub login.');
-    } finally {
-      setLoginLoading(false);
-    }
-  }
-
-  async function pollGitHubLogin(intervalSeconds: number) {
-    await delay(intervalSeconds * 1000);
-
-    try {
-      const response = await fetch('/api/github/login/poll', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const flow = await readJson<DeviceLoginResponse>(response);
-      setLoginFlow(flow);
-
-      if (flow.status === 'authorized') {
-        setLoginFlow(null);
-        await loadAuthStatus();
-        await loadPullRequests(repo.trim(), state);
-        return;
-      }
-
-      if (flow.status === 'pending' || flow.status === 'slow_down') {
-        void pollGitHubLogin(flow.intervalSeconds);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to complete GitHub login.');
-    }
+    const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.location.assign(`/api/github/login?returnUrl=${encodeURIComponent(returnUrl)}`);
   }
 
   async function logoutGitHub() {
     setError(null);
-    setLoginFlow(null);
 
     try {
       const response = await fetch('/api/github/logout', {
@@ -467,15 +413,6 @@ function App() {
           <span>{authStatus?.authenticated ? 'Authenticated' : 'Auth needed'}</span>
           <strong>{authStatus?.login ?? authStatus?.source ?? 'GitHub login'}</strong>
           <p>{authStatus?.message ?? 'Checking local GitHub auth...'}</p>
-          {loginFlow?.userCode && (
-            <div className="login-flow">
-              <b>{loginFlow.userCode}</b>
-              <a href={loginFlow.verificationUriComplete ?? loginFlow.verificationUri} target="_blank" rel="noreferrer">
-                Continue on GitHub
-              </a>
-              <small>{loginFlow.message}</small>
-            </div>
-          )}
           <div className="auth-actions">
             {!authStatus?.authenticated && (
               <button
@@ -530,7 +467,7 @@ function App() {
                     <p>
                       {authStatus?.login
                         ? `Clear these before picking up more work. Oldest unresolved reviews stay on top.`
-                        : 'Sign in with gh auth to personalize this bucket.'}
+                        : 'Sign in with GitHub to personalize this bucket.'}
                     </p>
                     <div className="pick-list">
                       {forMeItems.length === 0 && (
@@ -1864,9 +1801,6 @@ function isIdle(pullRequest: PullRequestSummary) {
   return Date.now() - new Date(pullRequest.updatedAt).getTime() >= 2 * dayMs;
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
 
 function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;

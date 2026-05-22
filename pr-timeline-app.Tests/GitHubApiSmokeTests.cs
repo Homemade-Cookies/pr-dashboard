@@ -30,13 +30,13 @@ public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
-    public async Task LoginStartRejectsNonBrowserMutationRequest()
+    public async Task LoginRejectsExternalReturnUrl()
     {
         using var client = factory.CreateClient();
 
-        using var response = await client.PostAsync("/api/github/login/start", content: null);
+        using var response = await client.GetAsync("/api/github/login?returnUrl=https%3A%2F%2Fevil.example");
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

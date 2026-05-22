@@ -1,3 +1,8 @@
+using AspNet.Security.OAuth.GitHub;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Mvc;
+
 public static class GitHubAuthRoutes
 {
     public static IEndpointRouteBuilder MapGitHubAuthRoutes(this IEndpointRouteBuilder endpoints)
@@ -7,47 +12,37 @@ public static class GitHubAuthRoutes
         api.MapGet("auth-status", async (GitHubAuthService auth, CancellationToken cancellationToken) =>
             Results.Ok(await auth.GetStatusAsync(cancellationToken)));
 
-        api.MapPost("login/start", async (
-            HttpContext context,
-            GitHubOAuthDeviceFlow deviceFlow,
-            CancellationToken cancellationToken) =>
+        api.MapGet("login", ([FromQuery] string? returnUrl) =>
         {
-            if (!IsBrowserMutationRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
-            if (!GitHubOAuthDeviceFlow.IsConfigured)
+            if (!GitHubOAuthConfiguration.IsConfigured)
             {
                 return Results.Problem(
                     title: "GitHub login is not configured",
-                    detail: "Set GITHUB_CLIENT_ID to a GitHub OAuth App client ID with Device Flow enabled.",
+                    detail: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET for a GitHub OAuth App.",
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            return Results.Ok(await deviceFlow.StartAsync(cancellationToken));
+            if (!TryNormalizeLocalReturnUrl(returnUrl, out var localReturnUrl))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["returnUrl"] = ["Return URL must be a local path."]
+                });
+            }
+
+            return Results.Challenge(
+                new AuthenticationProperties { RedirectUri = localReturnUrl },
+                [GitHubAuthenticationDefaults.AuthenticationScheme]);
         });
 
-        api.MapPost("login/poll", async (
-            HttpContext context,
-            GitHubOAuthDeviceFlow deviceFlow,
-            CancellationToken cancellationToken) =>
+        api.MapPost("logout", async (HttpContext context, GitHubAuthService auth) =>
         {
             if (!IsBrowserMutationRequest(context))
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
-            return Results.Ok(await deviceFlow.PollAsync(cancellationToken));
-        });
-
-        api.MapPost("logout", (HttpContext context, GitHubAuthService auth) =>
-        {
-            if (!IsBrowserMutationRequest(context))
-            {
-                return Results.StatusCode(StatusCodes.Status403Forbidden);
-            }
-
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             auth.Logout();
             return Results.Ok(new { authenticated = false });
         });
@@ -66,5 +61,26 @@ public static class GitHubAuthRoutes
         return string.IsNullOrEmpty(origin)
             || Uri.TryCreate(origin, UriKind.Absolute, out var uri)
             && (uri.IsLoopback || uri.Host.Equals(context.Request.Host.Host, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryNormalizeLocalReturnUrl(string? returnUrl, out string localReturnUrl)
+    {
+        localReturnUrl = "/";
+
+        if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(returnUrl, UriKind.Relative, out _)
+            || !returnUrl.StartsWith("/", StringComparison.Ordinal)
+            || returnUrl.StartsWith("//", StringComparison.Ordinal)
+            || returnUrl.Contains("\\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        localReturnUrl = returnUrl;
+        return true;
     }
 }

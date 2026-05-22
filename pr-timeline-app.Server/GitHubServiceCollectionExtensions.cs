@@ -1,14 +1,38 @@
 using System.Net.Http.Headers;
+using AspNet.Security.OAuth.GitHub;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 public static class GitHubServiceCollectionExtensions
 {
     public static IServiceCollection AddGitHubApiServices(this IServiceCollection services)
     {
+        services.AddHttpContextAccessor();
         services.AddMemoryCache();
         services.AddScoped<GitHubAuthService>();
         services.AddScoped<GitHubPullRequestService>();
         services.AddSingleton<GitHubTokenProvider>();
-        services.AddSingleton<GitHubOAuthDeviceFlow>();
+
+        var authentication = services
+            .AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            });
+
+        authentication.AddCookie();
+
+        if (GitHubOAuthConfiguration.IsConfigured)
+        {
+            authentication.AddGitHub(options =>
+            {
+                options.ClientId = GitHubOAuthConfiguration.ClientId ?? "";
+                options.ClientSecret = GitHubOAuthConfiguration.ClientSecret ?? "";
+                options.SaveTokens = true;
+                options.Scope.Add("repo");
+                options.Scope.Add("read:org");
+            });
+        }
 
         services.AddHttpClient<GitHubClient>(httpClient =>
         {
@@ -19,13 +43,6 @@ public static class GitHubServiceCollectionExtensions
             httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("pr-timeline-app", "1.0"));
             httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             httpClient.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        });
-
-        services.AddHttpClient<GitHubOAuthDeviceFlow>(httpClient =>
-        {
-            httpClient.BaseAddress = new Uri("https://github.com/");
-            httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("pr-timeline-app", "1.0"));
-            httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         });
 
         return services;
