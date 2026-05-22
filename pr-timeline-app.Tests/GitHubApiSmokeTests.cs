@@ -1,22 +1,47 @@
-using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace pr_timeline_app.Tests;
 
-public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class GitHubApiSmokeTests : IAsyncLifetime
 {
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+    private DistributedApplication? app;
+    private HttpClient? client;
+
+    public async Task InitializeAsync()
+    {
+        var cancellationToken = CancellationToken.None;
+        var appHost = await DistributedApplicationTestingBuilder
+            .CreateAsync<Projects.pr_timeline_app_AppHost>(["IncludeFrontend=false"], cancellationToken);
+
+        app = await appHost.BuildAsync(cancellationToken)
+            .WaitAsync(DefaultTimeout, cancellationToken);
+        await app.StartAsync(cancellationToken)
+            .WaitAsync(DefaultTimeout, cancellationToken);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("server", cancellationToken)
+            .WaitAsync(DefaultTimeout, cancellationToken);
+
+        client = app.CreateHttpClient("server");
+    }
+
+    public async Task DisposeAsync()
+    {
+        client?.Dispose();
+
+        if (app is not null)
+        {
+            await app.DisposeAsync().AsTask();
+        }
+    }
+
     [Fact]
     public async Task AuthStatusReportsLoggedOutAfterLocalLogout()
     {
-        using var client = factory.CreateClient();
-
-        var logout = await client.PostAsJsonAsync("/api/github/logout", new { });
+        var logout = await Client.PostAsJsonAsync("/api/github/logout", new { });
         logout.EnsureSuccessStatusCode();
 
-        using var response = await client.GetAsync("/api/github/auth-status");
+        using var response = await Client.GetAsync("/api/github/auth-status");
 
         response.EnsureSuccessStatusCode();
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
@@ -32,9 +57,7 @@ public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
     [Fact]
     public async Task LoginRejectsExternalReturnUrl()
     {
-        using var client = factory.CreateClient();
-
-        using var response = await client.GetAsync("/api/github/login?returnUrl=https%3A%2F%2Fevil.example");
+        using var response = await Client.GetAsync("/api/github/login?returnUrl=https%3A%2F%2Fevil.example");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -42,9 +65,7 @@ public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
     [Fact]
     public async Task PullListRejectsInvalidRepositoryWithoutCallingGitHub()
     {
-        using var client = factory.CreateClient();
-
-        using var response = await client.GetAsync("/api/github/pulls?repo=not-a-repo&state=open");
+        using var response = await Client.GetAsync("/api/github/pulls?repo=not-a-repo&state=open");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
@@ -55,9 +76,7 @@ public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
     [Fact]
     public async Task PullListRejectsInvalidStateWithoutCallingGitHub()
     {
-        using var client = factory.CreateClient();
-
-        using var response = await client.GetAsync("/api/github/pulls?repo=microsoft/aspire&state=merged");
+        using var response = await Client.GetAsync("/api/github/pulls?repo=microsoft/aspire&state=merged");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
@@ -68,13 +87,13 @@ public sealed class GitHubApiSmokeTests(WebApplicationFactory<Program> factory)
     [Fact]
     public async Task TimelineRejectsInvalidPullRequestNumberWithoutCallingGitHub()
     {
-        using var client = factory.CreateClient();
-
-        using var response = await client.GetAsync("/api/github/pulls/0/timeline?repo=microsoft/aspire");
+        using var response = await Client.GetAsync("/api/github/pulls/0/timeline?repo=microsoft/aspire");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
         Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("number", out var numberErrors));
         Assert.Contains("greater than zero", numberErrors[0].GetString());
     }
+
+    private HttpClient Client => client ?? throw new InvalidOperationException("Test app was not initialized.");
 }

@@ -4,14 +4,14 @@ Local Aspire app for triaging GitHub pull requests across the Aspire repos. The 
 
 ## Projects
 
-- `apphost.cs` - Aspire AppHost that runs the backend and Vite frontend.
+- `pr-timeline-app.AppHost/` - Aspire AppHost that runs the backend and Vite frontend.
 - `pr-timeline-app.Server/` - ASP.NET Core API proxy for GitHub PR data, review state, timelines, and GitHub Device Flow login.
 - `frontend/` - React/Vite dashboard UI.
 
 ## Run locally
 
 ```bash
-aspire run --apphost apphost.cs
+aspire run --apphost pr-timeline-app.AppHost/pr-timeline-app.AppHost.csproj
 ```
 
 The frontend is served at <http://localhost:5173/>. API requests are proxied to the server through the Aspire-provided `SERVER_HTTP` or `SERVER_HTTPS` environment variable.
@@ -34,12 +34,4 @@ Configure the OAuth App callback URL to the backend callback path, for example `
 ```bash
 dotnet build pr-timeline-app.slnx
 npm --prefix frontend run build -- --mode development
-```
-
-## Verify
-
-Run the full local regression check before and after backend refactors:
-
-```bash
-./scripts/verify.sh
 ```
