@@ -5,6 +5,8 @@ public static class GitHubServiceCollectionExtensions
     public static IServiceCollection AddGitHubApiServices(this IServiceCollection services)
     {
         services.AddMemoryCache();
+        services.AddScoped<GitHubAuthService>();
+        services.AddScoped<GitHubPullRequestService>();
         services.AddSingleton<GitHubTokenProvider>();
         services.AddSingleton<GitHubOAuthDeviceFlow>();
 

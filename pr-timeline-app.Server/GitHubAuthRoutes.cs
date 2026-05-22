@@ -4,24 +4,8 @@ public static class GitHubAuthRoutes
     {
         var api = endpoints.MapGroup("/api/github");
 
-        api.MapGet("auth-status", async (GitHubTokenProvider tokenProvider, GitHubClient gitHub, CancellationToken cancellationToken) =>
-        {
-            var token = await tokenProvider.GetTokenAsync(cancellationToken);
-            var login = token is null ? null : await gitHub.GetCurrentUserLoginAsync(cancellationToken);
-            return Results.Ok(new AuthStatusResponse(
-                Authenticated: token is not null,
-                Configured: GitHubOAuthDeviceFlow.IsConfigured,
-                CanLogin: GitHubOAuthDeviceFlow.IsConfigured,
-                Source: token?.Source,
-                Login: login,
-                Message: token is null
-                    ? GitHubOAuthDeviceFlow.IsConfigured
-                        ? "Sign in with GitHub to let the dashboard call the GitHub API."
-                        : "Set GITHUB_CLIENT_ID for GitHub login, or set GITHUB_TOKEN/GH_TOKEN, or run `gh auth login`."
-                    : token.Source == "oauth"
-                        ? "Signed in with GitHub for this local session."
-                        : "GitHub API token is available to the local backend."));
-        });
+        api.MapGet("auth-status", async (GitHubAuthService auth, CancellationToken cancellationToken) =>
+            Results.Ok(await auth.GetStatusAsync(cancellationToken)));
 
         api.MapPost("login/start", async (
             HttpContext context,
@@ -57,14 +41,14 @@ public static class GitHubAuthRoutes
             return Results.Ok(await deviceFlow.PollAsync(cancellationToken));
         });
 
-        api.MapPost("logout", (HttpContext context, GitHubTokenProvider tokenProvider) =>
+        api.MapPost("logout", (HttpContext context, GitHubAuthService auth) =>
         {
             if (!IsBrowserMutationRequest(context))
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
-            tokenProvider.Logout();
+            auth.Logout();
             return Results.Ok(new { authenticated = false });
         });
 

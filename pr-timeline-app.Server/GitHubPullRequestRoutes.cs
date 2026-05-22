@@ -9,7 +9,7 @@ public static class GitHubPullRequestRoutes
         api.MapGet("pulls", async (
             [FromQuery] string? repo,
             [FromQuery] string? state,
-            GitHubClient gitHub,
+            GitHubPullRequestService pullRequests,
             CancellationToken cancellationToken) =>
         {
             if (!RepositoryName.TryParse(repo ?? "microsoft/aspire", out var repositoryName))
@@ -29,14 +29,14 @@ public static class GitHubPullRequestRoutes
                 });
             }
 
-            var pulls = await gitHub.GetPullRequestsAsync(repositoryName, normalizedState, cancellationToken);
+            var pulls = await pullRequests.GetPullRequestsAsync(repositoryName, normalizedState, cancellationToken);
             return Results.Ok(new PullRequestListResponse(repositoryName.ToString(), pulls));
         });
 
         api.MapGet("pulls/{number:int}/timeline", async (
             int number,
             [FromQuery] string? repo,
-            GitHubClient gitHub,
+            GitHubPullRequestService pullRequests,
             CancellationToken cancellationToken) =>
         {
             if (number <= 0)
@@ -55,11 +55,7 @@ public static class GitHubPullRequestRoutes
                 });
             }
 
-            var pullRequest = await gitHub.GetPullRequestDetailsAsync(repositoryName, number, cancellationToken);
-            var timeline = await gitHub.GetPullRequestTimelineAsync(repositoryName, number, cancellationToken);
-            var stats = TimelineStats.Create(pullRequest, timeline);
-
-            return Results.Ok(new TimelineResponse(repositoryName.ToString(), number, stats, timeline));
+            return Results.Ok(await pullRequests.GetTimelineAsync(repositoryName, number, cancellationToken));
         });
 
         return endpoints;
