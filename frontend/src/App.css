@@ -101,6 +101,14 @@ select:focus-visible {
   gap: 0.65rem;
   border-radius: 1rem;
   padding: 0.45rem 0.55rem;
+  white-space: nowrap;
+}
+
+.auth-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
 .auth-card span {
@@ -123,7 +131,7 @@ select:focus-visible {
 }
 
 .auth-card strong {
-  display: block;
+  display: inline-block;
   max-width: 12rem;
   overflow: hidden;
   font-size: 0.85rem;
@@ -133,7 +141,7 @@ select:focus-visible {
 
 .auth-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.4rem;
 }
 
