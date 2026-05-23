@@ -410,9 +410,10 @@ function App() {
         </div>
 
         <div className={`auth-card ${authStatus?.authenticated ? 'ok' : 'warning'}`}>
-          <span>{authStatus?.authenticated ? 'Authenticated' : 'Auth needed'}</span>
-          <strong>{authStatus?.login ?? authStatus?.source ?? 'GitHub login'}</strong>
-          <p>{authStatus?.message ?? 'Checking local GitHub auth...'}</p>
+          <div className="auth-summary">
+            <span>{authStatus?.authenticated ? 'Signed in' : 'Auth'}</span>
+            <strong>{authStatus?.login ?? authStatus?.source ?? 'GitHub'}</strong>
+          </div>
           <div className="auth-actions">
             {!authStatus?.authenticated && (
               <button
@@ -420,7 +421,7 @@ function App() {
                 onClick={() => void startGitHubLogin()}
                 disabled={!authStatus?.canLogin || loginLoading}
               >
-                {loginLoading ? 'Starting...' : 'Login with GitHub'}
+                {loginLoading ? 'Starting...' : 'Sign in'}
               </button>
             )}
             {authStatus?.authenticated && (
