@@ -14,6 +14,7 @@ type QueueOverviewProps = {
   login?: string;
   onSelectBucket: (bucketId: string) => void;
   onSelectPullRequest: (repository: string, pullRequest: PullRequestSummary) => void;
+  onVisiblePullRequest: (repository: string, pullRequest: PullRequestSummary) => void;
 };
 
 type FocusItem = AttentionItem & {
@@ -26,6 +27,7 @@ const focusAgeLimitMs = 14 * dayMs;
 const excludedFocusBucketLabels = new Set(['Stalled', 'Draft', 'Docs', 'Community Toolkit', 'Bots / automation', 'Community']);
 const disqualifyingFocusBucketLabels = new Set(['Draft', 'Docs', 'Community Toolkit', 'Bots / automation', 'Community']);
 const focusBucketRanks = new Map([
+  ['CI failing', -1],
   ['Approved but aging', 0],
   ['Re-review needed', 1],
   ['Ready to merge', 2],
@@ -43,6 +45,7 @@ function QueueOverview({
   login,
   onSelectBucket,
   onSelectPullRequest,
+  onVisiblePullRequest,
 }: QueueOverviewProps) {
   const [showAllCoreMembers, setShowAllCoreMembers] = useState(false);
 
@@ -151,6 +154,7 @@ function QueueOverview({
           limit={pullRequestListLimit}
           emptyState="No recent non-automation PRs need attention in the current results."
           onSelectPullRequest={onSelectPullRequest}
+          onVisiblePullRequest={onVisiblePullRequest}
         />
       </section>
 
@@ -169,6 +173,7 @@ function QueueOverview({
           selectedBucketId={selectedBucketId}
           onSelectBucket={onSelectBucket}
           onSelectPullRequest={onSelectPullRequest}
+          onVisiblePullRequest={onVisiblePullRequest}
         />
       )}
     </section>

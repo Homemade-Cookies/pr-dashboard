@@ -319,9 +319,303 @@ public sealed class GitHubClientTests
         var pullRequest = Assert.Single(pullRequests);
         Assert.Equal("reviewed", pullRequest.Review.State);
         Assert.Equal(DateTimeOffset.Parse("2026-01-03T00:00:00Z"), pullRequest.LastCommitAt);
+        Assert.Equal("none", pullRequest.Checks.State);
+    }
+
+    [Fact]
+    public async Task PullRequestChecksFetchesFailingChecksForVisiblePullRequests()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/commits/abc123/check-runs?filter=latest&per_page=100" => Json(
+                """
+                {
+                  "total_count": 3,
+                  "check_runs": [
+                    { "id": 1, "name": "build", "status": "completed", "conclusion": "success", "completed_at": "2026-01-02T00:30:00Z", "html_url": "https://ci.example/build" },
+                    { "id": 2, "name": "tests", "status": "completed", "conclusion": "failure", "completed_at": "2026-01-02T00:45:00Z", "html_url": "https://ci.example/tests" },
+                    { "id": 3, "name": "lint", "status": "in_progress", "conclusion": null, "completed_at": null, "html_url": "https://ci.example/lint" }
+                  ]
+                }
+                """),
+            "repos/example/repo/commits/abc123/status?per_page=100" => Json(
+                """
+                {
+                  "state": "pending",
+                  "total_count": 1,
+                  "statuses": [
+                    { "state": "pending", "context": "azure-pipelines", "target_url": "https://az.example", "updated_at": "2026-01-02T00:50:00Z" }
+                  ]
+                }
+                """),
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestChecksAsync(
+            new RepositoryName("example", "repo"),
+            [new PullRequestChecksRequestItem(1, "abc123")],
+            TestContext.Current.CancellationToken);
+
+        var pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("failure", pullRequest.Checks.State);
+        Assert.Equal(4, pullRequest.Checks.TotalCount);
+        Assert.Equal(1, pullRequest.Checks.SuccessCount);
+        Assert.Equal(1, pullRequest.Checks.FailureCount);
+        Assert.Equal(2, pullRequest.Checks.PendingCount);
+        var failing = Assert.Single(pullRequest.Checks.FailingChecks);
+        Assert.Equal("tests", failing.Name);
+        Assert.Equal("failure", failing.Conclusion);
+    }
+
+    [Fact]
+    public async Task PullRequestChecksTreatsAllGreenChecksAsSuccess()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/commits/def456/check-runs?filter=latest&per_page=100" => Json(
+                """
+                {
+                  "total_count": 2,
+                  "check_runs": [
+                    { "id": 1, "name": "build", "status": "completed", "conclusion": "success", "completed_at": "2026-01-02T00:30:00Z" },
+                    { "id": 2, "name": "tests", "status": "completed", "conclusion": "success", "completed_at": "2026-01-02T00:45:00Z" }
+                  ]
+                }
+                """),
+            "repos/example/repo/commits/def456/status?per_page=100" => Json(
+                """{ "state": "success", "total_count": 0, "statuses": [] }"""),
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestChecksAsync(
+            new RepositoryName("example", "repo"),
+            [new PullRequestChecksRequestItem(1, "def456")],
+            TestContext.Current.CancellationToken);
+
+        var pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("success", pullRequest.Checks.State);
+        Assert.Equal(2, pullRequest.Checks.TotalCount);
+        Assert.Empty(pullRequest.Checks.FailingChecks);
+    }
+
+    [Fact]
+    public async Task PullListSkipsChecksWhenStateIsClosed()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/pulls?state=closed&sort=updated&direction=desc&per_page=100" => Json(
+                """
+                [
+                  {
+                    "number": 1,
+                    "title": "Add feature",
+                    "state": "closed",
+                    "body": null,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
+                    "draft": false,
+                    "user": { "login": "octocat" },
+                    "html_url": "https://github.com/example/repo/pull/1",
+                    "labels": [],
+                    "requested_reviewers": [],
+                    "requested_teams": [],
+                    "head": { "sha": "abc123", "ref": "feature" }
+                  }
+                ]
+                """),
+            "repos/example/repo/pulls/1/reviews?per_page=100" => Json("[]"),
+            "repos/example/repo/pulls/1" => Json(PullRequestDetailsJson(1)),
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestsAsync(
+            new RepositoryName("example", "repo"),
+            "closed",
+            TestContext.Current.CancellationToken);
+
+        var pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("none", pullRequest.Checks.State);
+    }
+
+    [Fact]
+    public async Task PullRequestChecksTreatsAllNeutralOrSkippedChecksAsSuccess()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/commits/neu789/check-runs?filter=latest&per_page=100" => Json(
+                """
+                {
+                  "total_count": 2,
+                  "check_runs": [
+                    { "id": 1, "name": "irrelevant", "status": "completed", "conclusion": "neutral", "completed_at": "2026-01-02T00:30:00Z" },
+                    { "id": 2, "name": "doc-job", "status": "completed", "conclusion": "skipped", "completed_at": "2026-01-02T00:35:00Z" }
+                  ]
+                }
+                """),
+            "repos/example/repo/commits/neu789/status?per_page=100" => Json(
+                """{ "state": "success", "total_count": 0, "statuses": [] }"""),
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestChecksAsync(
+            new RepositoryName("example", "repo"),
+            [new PullRequestChecksRequestItem(1, "neu789")],
+            TestContext.Current.CancellationToken);
+
+        var pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("success", pullRequest.Checks.State);
+        Assert.Equal(2, pullRequest.Checks.TotalCount);
+        Assert.Equal(0, pullRequest.Checks.SuccessCount);
+        Assert.Equal(1, pullRequest.Checks.NeutralCount);
+        Assert.Equal(1, pullRequest.Checks.SkippedCount);
+    }
+
+    [Fact]
+    public async Task PullRequestChecksSwallowsRateLimitOnChecksFetch()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/commits/rl1/check-runs?filter=latest&per_page=100" => Json(
+                """{ "message": "API rate limit exceeded" }""",
+                (HttpStatusCode)403),
+            "repos/example/repo/commits/rl1/status?per_page=100" => Json(
+                """{ "message": "Server error" }""",
+                HttpStatusCode.InternalServerError),
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestChecksAsync(
+            new RepositoryName("example", "repo"),
+            [new PullRequestChecksRequestItem(1, "rl1")],
+            TestContext.Current.CancellationToken);
+
+        var pullRequest = Assert.Single(pullRequests);
+        // Rate limit and 5xx on checks must degrade gracefully — the PR still appears.
+        Assert.Equal("none", pullRequest.Checks.State);
+    }
+
+    [Fact]
+    public async Task PullListDefersChecksForOpenPrsInAllQuery()
+    {
+        var client = CreateClient(path => path switch
+        {
+            "repos/example/repo/pulls?state=all&sort=updated&direction=desc&per_page=100" => Json(
+                """
+                [
+                  {
+                    "number": 1,
+                    "title": "Open feature",
+                    "state": "open",
+                    "body": null,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
+                    "draft": false,
+                    "user": { "login": "octocat" },
+                    "html_url": "https://github.com/example/repo/pull/1",
+                    "labels": [],
+                    "requested_reviewers": [],
+                    "requested_teams": [],
+                    "head": { "sha": "open123", "ref": "feature" }
+                  },
+                  {
+                    "number": 2,
+                    "title": "Closed feature",
+                    "state": "closed",
+                    "body": null,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
+                    "draft": false,
+                    "user": { "login": "octocat" },
+                    "html_url": "https://github.com/example/repo/pull/2",
+                    "labels": [],
+                    "requested_reviewers": [],
+                    "requested_teams": [],
+                    "head": { "sha": "closed456", "ref": "older" }
+                  }
+                ]
+                """),
+            "repos/example/repo/pulls/1/reviews?per_page=100" => Json("[]"),
+            "repos/example/repo/pulls/2/reviews?per_page=100" => Json("[]"),
+            "repos/example/repo/pulls/1" => Json(PullRequestDetailsJson(1)),
+            "repos/example/repo/pulls/2" => Json(PullRequestDetailsJson(2)),
+            // Intentionally NO check-runs / status stubs — the list response should not fetch CI
+            // until the client asks for checks on visible PRs.
+            _ => throw new InvalidOperationException($"Unexpected GitHub request: {path}")
+        });
+
+        var pullRequests = await client.GetPullRequestsAsync(
+            new RepositoryName("example", "repo"),
+            "all",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, pullRequests.Count);
+        var open = pullRequests.Single(pullRequest => pullRequest.Number == 1);
+        var closed = pullRequests.Single(pullRequest => pullRequest.Number == 2);
+        Assert.Equal("unknown", open.Checks.State);
+        Assert.Equal("none", closed.Checks.State);
+    }
+
+    [Fact]
+    public async Task PullRequestChecksLimitsConcurrentFetches()
+    {
+        const int pullRequestCount = 6;
+        var activeChecksByHead = new Dictionary<string, int>(StringComparer.Ordinal);
+        var activeGate = new object();
+        var maxActiveHeads = 0;
+
+        var client = CreateClient(async (path, cancellationToken) =>
+        {
+            if (TryGetChecksHeadSha(path, out var headSha))
+            {
+                lock (activeGate)
+                {
+                    activeChecksByHead.TryGetValue(headSha, out var activeRequestsForHead);
+                    activeChecksByHead[headSha] = activeRequestsForHead + 1;
+                    maxActiveHeads = Math.Max(maxActiveHeads, activeChecksByHead.Count);
+                }
+
+                try
+                {
+                    await Task.Delay(50, cancellationToken);
+                    return path.Contains("/check-runs?", StringComparison.Ordinal)
+                        ? Json("""{ "total_count": 0, "check_runs": [] }""")
+                        : Json("""{ "state": "success", "total_count": 0, "statuses": [] }""");
+                }
+                finally
+                {
+                    lock (activeGate)
+                    {
+                        var activeRequestsForHead = activeChecksByHead[headSha] - 1;
+                        if (activeRequestsForHead == 0)
+                        {
+                            activeChecksByHead.Remove(headSha);
+                        }
+                        else
+                        {
+                            activeChecksByHead[headSha] = activeRequestsForHead;
+                        }
+                    }
+                }
+            }
+
+            throw new InvalidOperationException($"Unexpected GitHub request: {path}");
+        });
+
+        var pullRequests = await client.GetPullRequestChecksAsync(
+            new RepositoryName("example", "repo"),
+            Enumerable.Range(1, pullRequestCount)
+                .Select(number => new PullRequestChecksRequestItem(number, $"sha{number}"))
+                .ToArray(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(pullRequestCount, pullRequests.Count);
+        Assert.True(maxActiveHeads <= 4, $"Expected at most 4 concurrent checks fetches but saw {maxActiveHeads}.");
     }
 
     private static GitHubClient CreateClient(Func<string, HttpResponseMessage> route)
+        => CreateClient((path, _) => Task.FromResult(route(path)));
+
+    private static GitHubClient CreateClient(Func<string, CancellationToken, Task<HttpResponseMessage>> route)
     {
         var httpClient = new HttpClient(new StubGitHubHandler(route))
         {
@@ -332,6 +626,34 @@ public sealed class GitHubClientTests
             new TestHostEnvironment());
 
         return new GitHubClient(httpClient, tokenProvider, new MemoryCache(new MemoryCacheOptions()), new TestHostEnvironment());
+    }
+
+    private static bool TryGetChecksHeadSha(string path, out string headSha)
+    {
+        headSha = "";
+        const string marker = "/commits/";
+        var markerIndex = path.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        var afterMarker = path[(markerIndex + marker.Length)..];
+        var slashIndex = afterMarker.IndexOf('/');
+        if (slashIndex <= 0)
+        {
+            return false;
+        }
+
+        var endpoint = afterMarker[(slashIndex + 1)..];
+        if (!endpoint.StartsWith("check-runs?", StringComparison.Ordinal)
+            && !endpoint.StartsWith("status?", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        headSha = afterMarker[..slashIndex];
+        return true;
     }
 
     private static DefaultHttpContext CreateHttpContextWithGitHubToken()
@@ -391,13 +713,13 @@ public sealed class GitHubClientTests
         }
         """;
 
-    private sealed class StubGitHubHandler(Func<string, HttpResponseMessage> route) : HttpMessageHandler
+    private sealed class StubGitHubHandler(Func<string, CancellationToken, Task<HttpResponseMessage>> route) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             Assert.Equal("unit-test-token", request.Headers.Authorization?.Parameter);
-            return Task.FromResult(route(request.RequestUri?.PathAndQuery.TrimStart('/') ?? ""));
+            return await route(request.RequestUri?.PathAndQuery.TrimStart('/') ?? "", cancellationToken);
         }
     }
 

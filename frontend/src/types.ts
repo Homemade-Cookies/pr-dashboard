@@ -34,7 +34,9 @@ export type PullRequestSummary = {
   deletions: number;
   changedFiles: number;
   lastCommitAt?: string | null;
+  headSha?: string | null;
   review: ReviewStatus;
+  checks: ChecksStatus;
 };
 
 export type LinkedIssueSummary = {
@@ -57,9 +59,45 @@ export type ReviewStatus = {
   lastReviewedAt?: string | null;
 };
 
+export type CheckState = 'unknown' | 'success' | 'failure' | 'pending' | 'none';
+
+export type FailingCheck = {
+  name: string;
+  conclusion?: string | null;
+  htmlUrl?: string | null;
+};
+
+export type ChecksStatus = {
+  state: CheckState;
+  totalCount: number;
+  successCount: number;
+  failureCount: number;
+  pendingCount: number;
+  neutralCount: number;
+  skippedCount: number;
+  completedAt?: string | null;
+  failingChecks: FailingCheck[];
+};
+
 export type PullRequestListResponse = {
   repository: string;
   pullRequests: Omit<PullRequestSummary, 'repository'>[];
+};
+
+export type PullRequestChecksRequest = {
+  pullRequests: {
+    number: number;
+    headSha: string;
+  }[];
+};
+
+export type PullRequestChecksResponse = {
+  repository: string;
+  pullRequests: {
+    number: number;
+    headSha: string;
+    checks: ChecksStatus;
+  }[];
 };
 
 export type TimelineItem = {
@@ -102,10 +140,22 @@ export type DeveloperStats = {
   lastActivityAt: string;
 };
 
+export type MergeableState =
+  | 'clean'
+  | 'dirty'
+  | 'blocked'
+  | 'behind'
+  | 'unstable'
+  | 'has_hooks'
+  | 'unknown'
+  | 'draft';
+
 export type TimelineResponse = {
   repository: string;
   number: number;
   stats: TimelineStats;
+  checks: ChecksStatus;
+  mergeableState?: MergeableState | null;
   items: TimelineItem[];
 };
 

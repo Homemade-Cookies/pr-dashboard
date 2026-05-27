@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import './App.css';
 import AppInfo from './components/AppInfo';
@@ -8,6 +8,9 @@ import DetailView from './components/detail/DetailView';
 import { defaultRepoInput, defaultRepos } from './constants';
 import type {
   AuthStatus,
+  MergeableState,
+  PullRequestChecksRequest,
+  PullRequestChecksResponse,
   PullRequestListResponse,
   PullRequestSummary,
   PullState,
@@ -28,6 +31,12 @@ import {
 } from './utils/models';
 import { parseBucketHash, parseDetailHash, parseRepositories, pushDetailHistory, replaceBucketHistory } from './utils/routing';
 
+type VisibleChecksRequestItem = {
+  repository: string;
+  number: number;
+  headSha: string;
+};
+
 function App() {
   const [repo, setRepo] = useState(defaultRepoInput);
   const [activeRepo, setActiveRepo] = useState(defaultRepos[0]);
@@ -37,6 +46,7 @@ function App() {
   const [selectedPullRequest, setSelectedPullRequest] = useState<PullRequestSummary | null>(null);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [timelineStats, setTimelineStats] = useState<TimelineStats | null>(null);
+  const [mergeableState, setMergeableState] = useState<MergeableState | null>(null);
   const [pullsLoading, setPullsLoading] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -44,6 +54,16 @@ function App() {
   const [viewMode, setViewMode] = useState<'dashboard' | 'details'>('dashboard');
   const [locationHash, setLocationHash] = useState(window.location.hash);
   const [selectedBucketId, setSelectedBucketId] = useState(parseBucketHash(window.location.hash)?.bucketId ?? '');
+  // Tracks the PR currently selected for detail view. Updated synchronously when loadTimeline
+  // starts (and on logout / repo reload) so async completions can reliably detect whether they
+  // still belong to the latest selection. A useEffect would lag behind a render and cause fast
+  // cache hits to be incorrectly dropped.
+  const currentSelectionRef = useRef<{ repository: string; number: number } | null>(null);
+  const checksRequestVersionRef = useRef(0);
+  const visibleChecksQueueRef = useRef(new Map<string, VisibleChecksRequestItem>());
+  const pendingVisibleChecksRef = useRef(new Set<string>());
+  const visibleChecksTimerRef = useRef<number | null>(null);
+  const visibleChecksAbortControllerRef = useRef<AbortController | null>(null);
 
   const selectedTitle = selectedPullRequest
     ? `#${selectedPullRequest.number} ${selectedPullRequest.title}`
@@ -74,9 +94,9 @@ function App() {
   const triageModel = useMemo(
     () =>
       selectedPullRequest && timelineStats
-        ? createTriageModel(selectedPullRequest, timelineStats, timelineItems)
+        ? createTriageModel(selectedPullRequest, timelineStats, timelineItems, mergeableState)
         : null,
-    [selectedPullRequest, timelineItems, timelineStats],
+    [mergeableState, selectedPullRequest, timelineItems, timelineStats],
   );
 
   useEffect(() => {
@@ -124,6 +144,9 @@ function App() {
     if (pullRequest) {
       void loadTimeline(detail.repository, pullRequest, false);
     }
+    // loadTimeline closes over component state; including it would re-fire on every render.
+    // The effect intentionally tracks only the hash + pull-request list + current selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationHash, pullRequests, selectedPullRequest]);
 
   useEffect(() => {
@@ -163,6 +186,7 @@ function App() {
 
   async function logoutGitHub() {
     setError(null);
+    cancelVisibleChecksRequests();
 
     try {
       const response = await fetch('/api/github/logout', {
@@ -173,9 +197,11 @@ function App() {
       await readJson(response);
       await loadAuthStatus();
       setPullRequests([]);
+      currentSelectionRef.current = null;
       setSelectedPullRequest(null);
       setTimelineItems([]);
       setTimelineStats(null);
+      setMergeableState(null);
       setViewMode('dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign out.');
@@ -185,9 +211,12 @@ function App() {
   async function loadPullRequests(repositoryInput: string, pullState: PullState) {
     setPullsLoading(true);
     setError(null);
+    beginVisibleChecksRequestScope();
+    currentSelectionRef.current = null;
     setSelectedPullRequest(null);
     setTimelineItems([]);
     setTimelineStats(null);
+    setMergeableState(null);
     setViewMode('dashboard');
 
     try {
@@ -219,9 +248,144 @@ function App() {
     }
   }
 
+  function beginVisibleChecksRequestScope() {
+    cancelVisibleChecksRequests();
+    visibleChecksAbortControllerRef.current = new AbortController();
+  }
+
+  function cancelVisibleChecksRequests() {
+    checksRequestVersionRef.current += 1;
+    visibleChecksQueueRef.current.clear();
+    pendingVisibleChecksRef.current.clear();
+    if (visibleChecksTimerRef.current !== null) {
+      window.clearTimeout(visibleChecksTimerRef.current);
+      visibleChecksTimerRef.current = null;
+    }
+
+    visibleChecksAbortControllerRef.current?.abort();
+    visibleChecksAbortControllerRef.current = null;
+  }
+
+  function requestVisibleChecks(repository: string, pullRequest: PullRequestSummary) {
+    if (
+      pullRequest.state !== 'open'
+      || !pullRequest.headSha
+      || pullRequest.checks?.state !== 'unknown'
+    ) {
+      return;
+    }
+
+    const key = checksRequestKey(repository, pullRequest.number, pullRequest.headSha);
+    if (pendingVisibleChecksRef.current.has(key) || visibleChecksQueueRef.current.has(key)) {
+      return;
+    }
+
+    pendingVisibleChecksRef.current.add(key);
+    visibleChecksQueueRef.current.set(key, {
+      repository,
+      number: pullRequest.number,
+      headSha: pullRequest.headSha,
+    });
+
+    if (visibleChecksTimerRef.current === null) {
+      const requestVersion = checksRequestVersionRef.current;
+      visibleChecksTimerRef.current = window.setTimeout(() => {
+        void flushVisibleChecksQueue(requestVersion);
+      }, 50);
+    }
+  }
+
+  async function flushVisibleChecksQueue(requestVersion: number) {
+    visibleChecksTimerRef.current = null;
+    const queuedItems = [...visibleChecksQueueRef.current.values()];
+    visibleChecksQueueRef.current.clear();
+    if (queuedItems.length === 0 || requestVersion !== checksRequestVersionRef.current) {
+      return;
+    }
+
+    const abortController = visibleChecksAbortControllerRef.current ?? new AbortController();
+    visibleChecksAbortControllerRef.current = abortController;
+    const itemsByRepository = queuedItems.reduce((groups, item) => {
+      const repositoryItems = groups.get(item.repository) ?? [];
+      repositoryItems.push(item);
+      groups.set(item.repository, repositoryItems);
+      return groups;
+    }, new Map<string, VisibleChecksRequestItem[]>());
+    await Promise.all([...itemsByRepository].map(([repository, items]) =>
+      loadVisibleChecks(repository, items, requestVersion, abortController.signal)));
+  }
+
+  async function loadVisibleChecks(
+    repository: string,
+    items: VisibleChecksRequestItem[],
+    requestVersion: number,
+    signal: AbortSignal,
+  ) {
+    const requestedKeys = items.map((item) => checksRequestKey(item.repository, item.number, item.headSha));
+    try {
+      const query = new URLSearchParams({ repo: repository });
+      const body: PullRequestChecksRequest = {
+        pullRequests: items.map((item) => ({
+          number: item.number,
+          headSha: item.headSha,
+        })),
+      };
+      const response = await fetch(`/api/github/pulls/checks?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      });
+      const data = await readJson<PullRequestChecksResponse>(response);
+      if (signal.aborted || requestVersion !== checksRequestVersionRef.current) {
+        return;
+      }
+
+      const checksByKey = new Map(
+        data.pullRequests.map((pullRequest) => [
+          checksRequestKey(data.repository, pullRequest.number, pullRequest.headSha),
+          pullRequest.checks,
+        ]),
+      );
+
+      setPullRequests((current) =>
+        current.map((pullRequest) => {
+          const headSha = pullRequest.headSha;
+          if (!headSha) {
+            return pullRequest;
+          }
+
+          const checks = checksByKey.get(checksRequestKey(pullRequest.repository, pullRequest.number, headSha));
+          return checks ? { ...pullRequest, checks } : pullRequest;
+        }),
+      );
+      setSelectedPullRequest((current) => {
+        const headSha = current?.headSha;
+        if (!current || !headSha) {
+          return current;
+        }
+
+        const checks = checksByKey.get(checksRequestKey(current.repository, current.number, headSha));
+        return checks ? { ...current, checks } : current;
+      });
+    } catch (err) {
+      if (!isAbortError(err)) {
+        console.warn('Unable to load visible pull request checks.', err);
+      }
+    } finally {
+      for (const key of requestedKeys) {
+        pendingVisibleChecksRef.current.delete(key);
+      }
+    }
+  }
+
   async function loadTimeline(repository: string, pullRequest: PullRequestSummary, updateHistory = true) {
     setTimelineLoading(true);
     setError(null);
+    // Set the selection ref BEFORE the async fetch starts so isSelectionStillCurrent always
+    // sees the most recent selection — even when the timeline resolves from cache before the
+    // next render commit.
+    currentSelectionRef.current = { repository, number: pullRequest.number };
     setSelectedPullRequest(pullRequest);
     setActiveRepo(repository);
     setViewMode('details');
@@ -230,19 +394,48 @@ function App() {
       setLocationHash(window.location.hash);
     }
 
+    const requestedRepository = repository;
+    const requestedNumber = pullRequest.number;
+
     try {
       const query = new URLSearchParams({ repo: repository });
       const response = await fetch(`/api/github/pulls/${pullRequest.number}/timeline?${query}`);
       const data = await readJson<TimelineResponse>(response);
-      setTimelineStats(data.stats);
-      setTimelineItems(data.items);
+      setSelectedPullRequest((current) =>
+        current && current.repository === requestedRepository && current.number === requestedNumber
+          ? {
+              ...current,
+              checks: data.checks ?? current.checks,
+            }
+          : current,
+      );
+      setTimelineStats((current) =>
+        isSelectionStillCurrent(requestedRepository, requestedNumber) ? data.stats : current,
+      );
+      setTimelineItems((current) =>
+        isSelectionStillCurrent(requestedRepository, requestedNumber) ? data.items : current,
+      );
+      setMergeableState((current) =>
+        isSelectionStillCurrent(requestedRepository, requestedNumber) ? (data.mergeableState ?? null) : current,
+      );
     } catch (err) {
+      if (!isSelectionStillCurrent(requestedRepository, requestedNumber)) {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Unable to load pull request timeline.');
       setTimelineItems([]);
       setTimelineStats(null);
+      setMergeableState(null);
     } finally {
-      setTimelineLoading(false);
+      if (isSelectionStillCurrent(requestedRepository, requestedNumber)) {
+        setTimelineLoading(false);
+      }
     }
+  }
+
+  function isSelectionStillCurrent(repository: string, number: number) {
+    const current = currentSelectionRef.current;
+    return current?.repository === repository && current.number === number;
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -306,6 +499,7 @@ function App() {
             onSubmit={onSubmit}
             onSelectBucket={selectBucket}
             onSelectPullRequest={(repository, pullRequest) => void loadTimeline(repository, pullRequest)}
+            onVisiblePullRequest={requestVisibleChecks}
           />
         )}
 
@@ -319,6 +513,7 @@ function App() {
             triageModel={triageModel}
             activityModel={activityModel}
             groupedTimeline={groupedTimeline}
+            mergeableState={mergeableState}
             onBack={() => showDashboard()}
           />
         )}
@@ -327,6 +522,14 @@ function App() {
       <AppInfo />
     </div>
   );
+}
+
+function checksRequestKey(repository: string, number: number, headSha: string) {
+  return `${repository.toLowerCase()}#${number}:${headSha}`;
+}
+
+function isAbortError(err: unknown) {
+  return err instanceof DOMException && err.name === 'AbortError';
 }
 
 export default App;
