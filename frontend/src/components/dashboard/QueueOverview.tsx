@@ -9,7 +9,8 @@ import type {
   PullRequestSummary,
   VisiblePullRequestHandler,
 } from '../../types';
-import { colorForText, formatCount, formatRelative, initials } from '../../utils/format';
+import { colorForText, formatCount, formatRelative } from '../../utils/format';
+import GitHubAvatar from '../GitHubAvatar';
 import LoadingBadge from '../LoadingBadge';
 import PullRequestList from '../PullRequestList';
 import AttentionBoard from './AttentionBoard';
@@ -123,7 +124,7 @@ function QueueOverview({
                 className="core-member-row"
                 style={{ '--developer-accent': colorForText(count.actor) } as CSSProperties}
               >
-                <span className="avatar-dot">{initials(count.actor)}</span>
+                <GitHubAvatar login={count.actor} />
                 <strong>{count.actor}</strong>
                 <span>{formatCount(count.openPullRequestCount, 'open PR')}</span>
                 <em>
