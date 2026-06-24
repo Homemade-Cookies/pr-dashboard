@@ -212,3 +212,38 @@ describe('createAttentionBuckets lane routing', () => {
     expect(createAttentionSignals({ pullRequest, reason: '' }).map((signal) => signal.label)).not.toContain('review debt');
   });
 });
+
+describe('createAttentionSignals review progress', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps approval counts inside limited PR card signals for crowded approved PRs', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-23T23:31:40Z'));
+
+    const pullRequest = pr({
+      number: 7,
+      title: 'Prepare 13.4 servicing update',
+      baseRef: 'release/13.4',
+      review: {
+        state: 'approved',
+        approvalCount: 2,
+        lastApprovedAt: '2026-06-23T20:00:00Z',
+      },
+      checks: {
+        state: 'pending',
+        totalCount: 1,
+        successCount: 0,
+        pendingCount: 1,
+        completedAt: null,
+      },
+    });
+
+    const limitedLabels = createAttentionSignals({ pullRequest, reason: '' })
+      .slice(0, 4)
+      .map((signal) => signal.label);
+
+    expect(limitedLabels).toContain('2 approvals');
+  });
+});
