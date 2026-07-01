@@ -1,0 +1,31 @@
+// Template: Service.cs
+// Matches the pattern used by GitHubPullRequestService.cs / GitHubAuthService.cs —
+// a plain class registered in DI (see GitHubServiceCollectionExtensions.cs /
+// NotificationServiceCollectionExtensions.cs for the *ServiceCollectionExtensions.cs
+// registration pattern), injected into the corresponding *Routes.cs via minimal-API
+// parameter binding. No Accessor/Manager/Engine base class — this project deliberately
+// does not use that layering (verified via grep, zero hits).
+//
+// Replace every "__Feature__" with your feature name (PascalCase).
+
+public sealed class __Feature__Service(
+    // Inject collaborators the same way GitHubPullRequestService injects GitHubClient,
+    // IMemoryCache, IOptions<T>, etc. — constructor injection via primary constructor.
+    ILogger<__Feature__Service> logger)
+{
+    public Task<__Feature__Response> GetAsync(CancellationToken cancellationToken)
+    {
+        // Business logic goes here. If this calls GitHub's API and can fail with a
+        // GitHub-originated status code, throw GitHubApiException so
+        // GitHubExceptionHandlingExtensions.cs can translate it into a Problem Details
+        // response with the correct status code.
+        throw new NotImplementedException();
+    }
+
+    public Task<__Feature__Response> CreateAsync(__Feature__Request request, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+record __Feature__Response(string Id);

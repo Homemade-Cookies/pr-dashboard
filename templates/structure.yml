@@ -1,0 +1,39 @@
+# templates/structure.yml
+# Manifest of scaffolding templates for pr-dashboard. Kept intentionally small — a handful
+# of genuinely useful templates matching this repo's real patterns, not a generic library.
+
+version: "1.0"
+
+templates:
+  - id: backend-route-service-pair
+    description: >
+      New ASP.NET Core minimal-API route group + service pair, matching the flat
+      *Routes.cs + *Service.cs pattern used by GitHubPullRequestRoutes.cs/Service.cs,
+      GitHubAuthRoutes.cs/Service.cs, and NotificationRoutes.cs. No Accessor/Manager/Engine
+      base classes.
+    path: templates/backend-route-service-pair/
+    files:
+      - __Feature__Routes.cs.template
+      - __Feature__Service.cs.template
+    target_project: pr-timeline-app.Server
+    placeholders:
+      __Feature__: "PascalCase feature name, e.g. Milestones"
+    register_in: pr-timeline-app.Server/Program.cs
+
+  - id: react-component
+    description: >
+      New React function component matching the typed-props / named-function /
+      default-export pattern used throughout frontend/src/components/, with an optional
+      co-located vitest test file.
+    path: templates/react-component/
+    files:
+      - ComponentName.tsx.template
+      - ComponentName.test.tsx.template
+    target_project: frontend
+    placeholders:
+      ComponentName: "PascalCase component name, e.g. MilestonePanel"
+    placement_guidance:
+      dashboard_specific: frontend/src/components/dashboard/
+      pr_detail_specific: frontend/src/components/detail/
+      shared_or_leaf: frontend/src/components/
+      pure_logic: frontend/src/utils/ (or components/dashboard/focusQueue.ts for focus-queue rules)

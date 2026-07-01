@@ -1,0 +1,159 @@
+# Project Context Configuration
+# This file defines project-specific context for workflows and rules
+# Template variables like {{PROJECT_NAME}} will be replaced with values from this file
+
+version: "2.0"
+last_updated: "2026-07-01"
+
+project:
+  name: "pr-dashboard"
+  display_name: "Aspire Team App"
+  abbreviation: "PRD"
+  description: "Team dashboard for the Aspire team that prioritizes GitHub pull request review work, surfaces focus queues, tracks CI status and unresolved feedback, and sends Web Push notifications for review requests and ready-to-merge PRs"
+  repository_url: "https://github.com/nelnet-nbs/pr-dashboard"
+  documentation_url: "https://github.com/nelnet-nbs/pr-dashboard/tree/main/docs"
+
+architecture:
+  pattern: "Multi-project .NET solution with embedded frontend"
+  layers:
+    - "AppHost (Aspire orchestration)"
+    - "Server (ASP.NET Core minimal API + static file host)"
+    - "Frontend (React SPA served by Server in production)"
+    - "Tests (Aspire-backed integration/smoke tests)"
+  patterns:
+    - "Minimal API (Program.cs + top-level *Routes.cs extension methods)"
+    - "Flat namespace, no layered Accessor/Manager/Engine base classes"
+    - ".NET Aspire distributed application model (AppHost.cs)"
+    - "Vite-built SPA served from wwwroot via UseFileServer"
+    - "Installable PWA (vite-plugin-pwa, Web Push/VAPID)"
+
+tech_stack:
+  backend:
+    framework: "ASP.NET Core"
+    version: ".NET 10 (net10.0, dotnet-quality: preview)"
+    language: "C#"
+    runtime: ".NET 10 SDK"
+    additional:
+      - "Minimal APIs (no MVC controllers)"
+      - "AspNet.Security.OAuth.GitHub (GitHub OAuth, /signin-github)"
+      - "Lib.Net.Http.WebPush (VAPID Web Push)"
+      - "Microsoft.Extensions.Http.Resilience"
+      - "Microsoft.Extensions.ServiceDiscovery"
+      - "OpenTelemetry (ASP.NET Core, HTTP, Runtime instrumentation)"
+      - "Aspire.Azure.Storage.Blobs (github-cache and notifications blob containers)"
+  frontend:
+    framework: "React"
+    version: "19.2.x"
+    language: "TypeScript 5.9"
+    runtime: "Vite 8 (dev server + build), Node.js ^20.19.0 || >=22.12.0"
+    additional:
+      - "vite-plugin-pwa (installable PWA, service worker at src/sw.ts)"
+      - "vitest 4.x (unit tests, jsdom environment)"
+      - "ESLint 9 flat config (eslint.config.js)"
+      - "typescript-eslint 8"
+      - "@fontsource/poppins, html-to-image"
+  infrastructure:
+    orchestrator: ".NET Aspire (AppHost.cs, DistributedApplication)"
+    local_storage_emulator: "Azurite (via Aspire RunAsEmulator, data volume for persistence)"
+    production_storage: "Azure Blob Storage (github-cache, notifications containers)"
+    deployment_target: "Azure Container Apps (via `aspire deploy`)"
+    additional:
+      - "Single-replica constraint in production (MinReplicas = MaxReplicas = 1) for the in-process notification detector — see AppHost.cs comment"
+      - "Container-based: Azurite locally, ACA in production"
+  testing:
+    dotnet: "xUnit.v3 + xunit.runner.visualstudio + Aspire.Hosting.Testing + coverlet.collector (pr-timeline-app.Tests, net10.0)"
+    frontend: "vitest 4.x run (frontend/package.json test script), jsdom environment"
+    ci_command_dotnet: "dotnet test pr-timeline-app.slnx --no-build"
+    ci_command_frontend: "npm --prefix frontend test"
+
+domain:
+  industry: "Developer tooling / internal team dashboard"
+  key_concepts:
+    - "Focus queue (Needs attention) — PRs the team should review right now"
+    - "Unresolved feedback bucket — PRs with open review threads (human or Copilot bot), kept out of the focus queue"
+    - "Merge-blocking policy gate — GitHubReviewPolicy:RequireConversationResolution (owner/repo allowlist) controls whether unresolved threads pull an approved PR out of Ready to merge"
+    - "CI failing exclusion — PRs with failing checks on HEAD are excluded from Needs attention until green"
+    - "Ready to merge detection — approved, non-failing, no conflicts, no blocking label, not an aging approval"
+    - "Public cache warmup — logged-out users read from a shared cache for allowlisted repos only"
+    - "Web Push notifications — review_requested and ready_to_merge triggers, VAPID-signed, opt-in"
+  terminology:
+    "owner/repo": "GitHub repository identifier format used throughout config and query params"
+    "RepositoryName": "Server-side parsed/validated owner+repo pair (see GitHubPullRequestRoutes.cs)"
+    "GitHubApiException": "Typed exception carrying a GitHub-originated HTTP status, translated to a Problem Details response"
+    "single writer": "The notification detector BackgroundService assumption that only one server replica runs at a time"
+
+compliance:
+  frameworks:
+    - "No formal compliance framework declared in repo"
+  data_protection:
+    - "No secrets in repository (GitHub OAuth client secret, VAPID private key, GITHUB_PUBLIC_CACHE_TOKEN via user-secrets/environment/Aspire parameters only)"
+    - "GitHub OAuth flow requests no scopes (public repo API reads only)"
+    - "Push subscription endpoints and per-user dedupe state are treated as PII-adjacent and stored in a dedicated 'notifications' blob container, isolated from the cache-clear/TTL eviction path"
+  audit_requirements:
+    - "CI must pass: frontend lint/test, dotnet build/test on pr-timeline-app.slnx"
+
+work_tracking:
+  system: "GitHub"
+  project_key: "pr-dashboard"
+  board_url: "https://github.com/nelnet-nbs/pr-dashboard/issues"
+  organization: "nelnet-nbs"
+
+documentation:
+  architecture_docs:
+    - "docs/architecture/README.architecture.md"
+    - "docs/README.codebase-overview.md"
+  wiki_base_url: "https://github.com/nelnet-nbs/pr-dashboard"
+  api_docs_url: "https://github.com/nelnet-nbs/pr-dashboard/tree/main/docs/api"
+
+team:
+  development_model: "Agile"
+  sprint_length: "unspecified"
+  work_hours: "unspecified"
+  primary_timezone: "unspecified"
+
+custom:
+  pre_existing_agent_tooling:
+    location: ".agents/skills/"
+    note: "Pre-existing, not orche-managed. Contains aspire, aspire-deployment, aspireify, dotnet-inspect, playwright-cli skills used by a different tool/convention. Left untouched by orche initialization."
+  mcp_servers:
+    - name: "aspire"
+      command: "aspire agent mcp"
+      config_file: ".mcp.json"
+
+paths:
+  backend_source: "pr-timeline-app.Server"
+  apphost_source: "pr-timeline-app.AppHost"
+  frontend_source: "frontend/src"
+  tests: "pr-timeline-app.Tests"
+  frontend_tests: "frontend/src (co-located *.test.ts/*.test.tsx)"
+  docs: "docs"
+  templates: "templates"
+  indexes: "indexes"
+
+rules_applied:
+  - "backend-engineering/BE-csharp.md"
+  - "backend-engineering/BE-aspnet-rest-api.md"
+  - "frontend-engineering/FE-react.md"
+  - "frontend-engineering/FE-pwa.md"
+  - "devops-infrastructure/DI-docker.md"
+  - "security-privacy/SP-security-best-practices.md"
+  - "security-privacy/SP-data-privacy.md"
+  - "testing-quality/TQ-csharp-xunit.md"
+  - "testing-quality/TQ-integration-testing.md"
+  - "testing-quality/TQ-mocking-patterns.md"
+  - "architecture-design/AD-naming-conventions.md"
+  - "architecture-design/AD-error-handling.md"
+  - "architecture-design/AD-code-complexity.md"
+  - "documentation-content/DC-markdown.md"
+  - "documentation-content/DC-mermaid-style-guide.md"
+
+features:
+  - github-pull-request-dashboard
+  - focus-queue-prioritization
+  - unresolved-feedback-tracking
+  - merge-blocking-policy-gate
+  - ci-status-tracking
+  - public-cache-warmup
+  - installable-pwa
+  - web-push-notifications
+  - github-oauth-login

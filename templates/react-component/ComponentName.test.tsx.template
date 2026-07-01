@@ -1,0 +1,13 @@
+// Template: vitest + Testing patterns matching HelpTooltip.test.tsx / LoadingMetric.test.tsx
+// Run with: npm --prefix frontend test  (vitest run, jsdom environment)
+
+import { describe, expect, it } from 'vitest';
+
+describe('ComponentName', () => {
+  it('renders the label', () => {
+    // Prefer testing pure logic in utils/*.test.ts where possible (see
+    // focusQueue.test.ts, format.test.ts, signals.test.ts) — component tests here should
+    // focus on rendering/interaction behavior, not re-testing utils logic.
+    expect(true).toBe(true);
+  });
+});

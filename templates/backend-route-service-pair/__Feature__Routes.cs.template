@@ -1,0 +1,53 @@
+// Template: Routes.cs
+// Matches the pattern used by GitHubPullRequestRoutes.cs / GitHubAuthRoutes.cs /
+// NotificationRoutes.cs in pr-timeline-app.Server — a static class exposing a single
+// Map*Routes extension method on IEndpointRouteBuilder, grouped under a base path.
+//
+// Replace every "__Feature__" with your feature name (PascalCase) and "feature" in the
+// route group path with the actual route segment.
+//
+// Register the new group in Program.cs next to the existing MapGitHubAuthRoutes() /
+// MapGitHubPullRequestRoutes() / MapNotificationRoutes() calls:
+//     app.Map__Feature__Routes();
+
+public static class __Feature__Routes
+{
+    public static IEndpointRouteBuilder Map__Feature__Routes(this IEndpointRouteBuilder endpoints)
+    {
+        var api = endpoints.MapGroup("/api/feature");
+
+        api.MapGet("", async (
+            __Feature__Service service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetAsync(cancellationToken);
+            return Results.Ok(result);
+        });
+
+        // Validation failures use Results.ValidationProblem(...) directly in the handler —
+        // they do NOT go through GitHubExceptionHandlingExtensions.cs. Reserve that global
+        // handler for GitHubApiException (typed, status-carrying) and unexpected exceptions.
+        api.MapPost("", async (
+            [FromBody] __Feature__Request request,
+            __Feature__Service service,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["name"] = ["Name is required."]
+                });
+            }
+
+            var result = await service.CreateAsync(request, cancellationToken);
+            return Results.Ok(result);
+        });
+
+        return endpoints;
+    }
+}
+
+// Request/response records typically live in a sibling *Models.cs file
+// (see GitHubModels.cs, NotificationModels.cs, NotificationPayloads.cs) rather than inline.
+record __Feature__Request(string Name);

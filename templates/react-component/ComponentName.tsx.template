@@ -1,0 +1,43 @@
+// Template: React function component
+// Matches the pattern used across frontend/src/components/ (e.g. LoadingMetric.tsx,
+// SignalPills.tsx): a typed props object, a named function component, and a default
+// export. Co-locate a ComponentName.test.tsx next to it (vitest + jsdom) if the component
+// has non-trivial logic — see HelpTooltip.test.tsx / LoadingMetric.test.tsx for the shape
+// of existing component tests.
+//
+// Place dashboard-specific components in components/dashboard/, PR-detail components in
+// components/detail/, and shared/leaf components flat under components/. Put pure logic
+// (data shaping, business rules) in utils/ or, for focus-queue rules specifically,
+// components/dashboard/focusQueue.ts — not inline in the render body.
+
+import { useState } from 'react';
+
+type ComponentNameProps = {
+  label: string;
+  onAction?: () => void;
+  className?: string;
+};
+
+function ComponentName({ label, onAction, className }: ComponentNameProps) {
+  const [active, setActive] = useState(false);
+
+  const handleClick = () => {
+    setActive((current) => !current);
+    onAction?.();
+  };
+
+  return (
+    <button
+      type="button"
+      className={['component-name', className, active ? 'active' : undefined]
+        .filter(Boolean)
+        .join(' ')}
+      onClick={handleClick}
+      aria-pressed={active}
+    >
+      {label}
+    </button>
+  );
+}
+
+export default ComponentName;
